@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
-const BACKEND_URL = "http://localhost:3001";
+
+const BACKEND_URL = "https://emmc-backend.onrender.com";
 const AUTHORIZED_POLICE_ID = "TP001";
 
 function isValidGPS(latitude, longitude) {

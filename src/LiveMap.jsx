@@ -16,7 +16,7 @@ import "leaflet/dist/leaflet.css";
 // CONFIG
 // =====================================================
 
-const BACKEND_URL = "http://localhost:3001";
+const BACKEND_URL = "https://emmc-backend.onrender.com";
 
 const DEMO_AMBULANCE = [23.3441, 85.3096];
 

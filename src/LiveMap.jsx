@@ -1,28 +1,1920 @@
-import React, {useEffect, useMemo, useState} from "react";
-import {MapContainer, TileLayer, Marker, Popup, Polyline, Circle} from "react-leaflet";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  Polyline,
+  Circle,
+  useMap,
+} from "react-leaflet";
+import { io } from "socket.io-client";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-const DEMO_AMBULANCE=[23.3441,85.3096];
-const DEMO_HOSPITAL=[23.3615,85.3250];
-// Demo police location. In the real system this would come from an authorized police GPS/device.
-const DEMO_POLICE=[23.3500,85.3150];
-const POLICE_ALERT_RADIUS_KM=1;
+// =====================================================
+// CONFIG
+// =====================================================
 
-const ambulanceIcon=L.divIcon({className:"custom-marker",html:`<div style="width:24px;height:24px;background:#4285F4;border:4px solid white;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,.35)"></div>`,iconSize:[32,32],iconAnchor:[16,16]});
-const hospitalIcon=L.divIcon({className:"custom-marker",html:`<div style="width:28px;height:28px;background:#EA4335;border:3px solid white;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 2px 8px rgba(0,0,0,.35)"><div style="width:10px;height:10px;background:white;border-radius:50%;position:absolute;top:6px;left:6px"></div></div>`,iconSize:[34,34],iconAnchor:[17,34],popupAnchor:[0,-30]});
-const policeIcon=L.divIcon({className:"custom-marker",html:`<div style="width:30px;height:30px;background:#1f2937;border:3px solid white;border-radius:50%;display:flex;align-items:center;justify-content:center;color:white;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,.35)">🚔</div>`,iconSize:[36,36],iconAnchor:[18,18]});
+const BACKEND_URL = "http://localhost:3001";
 
-function distanceKm(a,b){const R=6371,rad=Math.PI/180;const dLat=(b[0]-a[0])*rad,dLng=(b[1]-a[1])*rad;const x=Math.sin(dLat/2)**2+Math.cos(a[0]*rad)*Math.cos(b[0]*rad)*Math.sin(dLng/2)**2;return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));}
+const DEMO_AMBULANCE = [23.3441, 85.3096];
 
-export default function LiveMap(){
- const [gpsLocation,setGpsLocation]=useState(null),[gpsError,setGpsError]=useState(""),[route,setRoute]=useState([]),[distance,setDistance]=useState(null),[duration,setDuration]=useState(null),[usingDemo,setUsingDemo]=useState(false),[lastUpdated,setLastUpdated]=useState(null),[routeStatus,setRouteStatus]=useState("Calculating route...");
- const ambulanceLocation=gpsLocation||DEMO_AMBULANCE;
- const policeDistance=useMemo(()=>distanceKm(ambulanceLocation,DEMO_POLICE),[ambulanceLocation]);
- const policeInRange=policeDistance<=POLICE_ALERT_RADIUS_KM;
- const patientEmergencyCategory="Critical / High Priority";
+const DEMO_HOSPITAL = [23.356343, 85.323337];
 
- useEffect(()=>{if(!navigator.geolocation){setGpsError("This browser/device does not support Geolocation.");setUsingDemo(true);return}const id=navigator.geolocation.watchPosition(p=>{setGpsLocation([p.coords.latitude,p.coords.longitude]);setGpsError("");setUsingDemo(false);setLastUpdated(new Date())},e=>{console.warn(e.message);setGpsError("GPS permission allow nahi hui. Demo location use ho rahi hai.");setUsingDemo(true)},{enableHighAccuracy:true,maximumAge:2000,timeout:10000});return()=>navigator.geolocation.clearWatch(id)},[]);
- useEffect(()=>{const controller=new AbortController();async function getRoute(){try{setRouteStatus("Recalculating route...");const [fromLat,fromLng]=ambulanceLocation,[toLat,toLng]=DEMO_HOSPITAL;const url=`https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=geojson`;const r=await fetch(url,{signal:controller.signal});if(!r.ok)throw Error(`Routing request failed: ${r.status}`);const d=await r.json();if(d.routes?.length){const x=d.routes[0];setRoute(x.geometry.coordinates.map(([lng,lat])=>[lat,lng]));setDistance((x.distance/1000).toFixed(2));setDuration(Math.round(x.duration/60));setRouteStatus("Live route updated")}else{setRouteStatus("Route unavailable")}}catch(e){if(e.name!=="AbortError")console.error(e)}}getRoute();return()=>controller.abort()},[gpsLocation,usingDemo]);
- return <section className="map-card"><div className="map"><MapContainer center={ambulanceLocation} zoom={14} style={{height:"100%",width:"100%"}} dragging touchZoom scrollWheelZoom doubleClickZoom zoomControl keyboard><TileLayer attribution="&copy; OpenStreetMap contributors" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/><Marker position={ambulanceLocation} icon={ambulanceIcon}><Popup>🚑 <b>Ambulance AMB102</b><br/>{gpsLocation?"LIVE GPS Location":"Demo Location"}</Popup></Marker><Marker position={DEMO_HOSPITAL} icon={hospitalIcon}><Popup>🏥 <b>City Hospital</b><br/>Emergency Department</Popup></Marker><Marker position={DEMO_POLICE} icon={policeIcon}><Popup>🚔 <b>Authorized Police Unit</b><br/>Traffic assistance unit</Popup></Marker><Circle center={ambulanceLocation} radius={1000} pathOptions={{weight:1,dashArray:"6 6"}}/>{route.length>0&&<Polyline positions={route} pathOptions={{weight:5}}/>}</MapContainer></div><div className="info"><div className="status">{gpsLocation?<>📍 <b>GPS Active</b> — {gpsLocation[0].toFixed(5)}, {gpsLocation[1].toFixed(5)}{lastUpdated&&<> &nbsp;•&nbsp; Updated {lastUpdated.toLocaleTimeString()}</>}</>:<>📍 <b>Demo GPS</b> — Allow location permission to use live GPS.</>}</div>{gpsError&&<div className="status">⚠️ {gpsError}</div>}{policeInRange?<div className="alert"><h3>🔔 Police Alert Triggered</h3><div>🚑 Ambulance <b>AMB102</b> is within <b>1 km</b> of an authorized police unit.</div><div>📍 Ambulance location: {ambulanceLocation[0].toFixed(5)}, {ambulanceLocation[1].toFixed(5)}</div><div>🏥 Destination: <b>City Hospital</b></div><div>⚠️ Patient emergency category: <b>{patientEmergencyCategory}</b></div><div>🚦 Action: Police can coordinate traffic clearance to give the ambulance a safe passage.</div></div>:<div className="police"><h3>🚔 Police Proximity</h3><div>Nearest authorized police unit: <b>{policeDistance.toFixed(2)} km</b> away <span className="badge">No alert yet</span></div></div>}<div className="status">🛣️ <b>Route:</b> {routeStatus}</div><div className="stats"><div className="stat"><span>📏 Distance</span><strong>{distance?`${distance} km`:"Calculating..."}</strong></div><div className="stat"><span>⏱️ ETA</span><strong>{duration!=null?`${duration} min`:"Calculating..."}</strong></div><div className="stat"><span>🚑 Ambulance</span><strong>AMB102</strong></div><div className="stat"><span>🏥 Destination</span><strong>City Hospital</strong></div></div><div className="police"><h3>🚔 Police Alert Logic</h3><div><b>Range:</b> 1 km &nbsp; | &nbsp; <b>Patient category:</b> {patientEmergencyCategory} &nbsp; | &nbsp; <b>Status:</b> {policeInRange?"Alert sent (demo)":"Waiting"}</div></div></div></section>
+const DEMO_HOSPITAL_NAME =
+  "Raj Hospital and Research Center, Ranchi";
+
+const POLICE_ALERT_RADIUS_KM = 1;
+
+const AMBULANCE_ID = "AMB102";
+
+const AUTHORIZED_POLICE_ID = "TP001";
+
+// =====================================================
+// MAP ICONS
+// =====================================================
+
+const ambulanceIcon = L.divIcon({
+  className: "custom-marker",
+  html: `
+    <div style="
+      width:24px;
+      height:24px;
+      background:#4285F4;
+      border:4px solid white;
+      border-radius:50%;
+      box-shadow:0 2px 8px rgba(0,0,0,.35);
+    "></div>
+  `,
+  iconSize: [32, 32],
+  iconAnchor: [16, 16],
+});
+
+const hospitalIcon = L.divIcon({
+  className: "custom-marker",
+  html: `
+    <div style="
+      width:28px;
+      height:28px;
+      background:#EA4335;
+      border:3px solid white;
+      border-radius:50% 50% 50% 0;
+      transform:rotate(-45deg);
+      box-shadow:0 2px 8px rgba(0,0,0,.35);
+      position:relative;
+    ">
+      <div style="
+        width:10px;
+        height:10px;
+        background:white;
+        border-radius:50%;
+        position:absolute;
+        top:6px;
+        left:6px;
+      "></div>
+    </div>
+  `,
+  iconSize: [34, 34],
+  iconAnchor: [17, 34],
+  popupAnchor: [0, -30],
+});
+
+const policeIcon = L.divIcon({
+  className: "custom-marker",
+  html: `
+    <div style="
+      width:30px;
+      height:30px;
+      background:#1f2937;
+      border:3px solid white;
+      border-radius:50%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      color:white;
+      font-size:16px;
+      box-shadow:0 2px 8px rgba(0,0,0,.35);
+    ">
+      🚔
+    </div>
+  `,
+  iconSize: [36, 36],
+  iconAnchor: [18, 18],
+});
+
+// =====================================================
+// GPS VALIDATION
+// =====================================================
+
+function isValidCoordinate(latitude, longitude) {
+  return (
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
+  );
+}
+
+function isValidLocation(location) {
+  return (
+    Array.isArray(location) &&
+    location.length === 2 &&
+    isValidCoordinate(
+      Number(location[0]),
+      Number(location[1])
+    )
+  );
+}
+
+// =====================================================
+// ACTUAL GPS DISTANCE - HAVERSINE
+// =====================================================
+
+function distanceKm(a, b) {
+  if (
+    !isValidLocation(a) ||
+    !isValidLocation(b)
+  ) {
+    return null;
+  }
+
+  const R = 6371;
+  const rad = Math.PI / 180;
+
+  const lat1 = Number(a[0]);
+  const lon1 = Number(a[1]);
+  const lat2 = Number(b[0]);
+  const lon2 = Number(b[1]);
+
+  const dLat = (lat2 - lat1) * rad;
+  const dLng = (lon2 - lon1) * rad;
+
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * rad) *
+      Math.cos(lat2 * rad) *
+      Math.sin(dLng / 2) ** 2;
+
+  const safeX = Math.min(
+    1,
+    Math.max(0, x)
+  );
+
+  return (
+    R *
+    2 *
+    Math.atan2(
+      Math.sqrt(safeX),
+      Math.sqrt(1 - safeX)
+    )
+  );
+}
+
+// =====================================================
+// DISTANCE DISPLAY
+// =====================================================
+
+function formatDistance(km) {
+  if (
+    km === null ||
+    !Number.isFinite(km)
+  ) {
+    return "";
+  }
+
+  if (km < 1) {
+    return `${Math.round(km * 1000)} m`;
+  }
+
+  return `${km.toFixed(2)} km`;
+}
+
+// =====================================================
+// MAP AUTO CENTER
+// =====================================================
+
+function MapRecenter({ location }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (isValidLocation(location)) {
+      map.setView(location);
+    }
+  }, [location, map]);
+
+  return null;
+}
+
+// =====================================================
+// MAIN COMPONENT
+// =====================================================
+
+export default function LiveMap() {
+
+  // ===================================================
+  // AMBULANCE GPS
+  // ===================================================
+
+  const [gpsLocation, setGpsLocation] =
+    useState(null);
+
+  const [backendLocation, setBackendLocation] =
+    useState(null);
+
+  // ===================================================
+  // TRAFFIC POLICE ACTUAL LIVE GPS
+  // ===================================================
+
+  const [
+    trafficPoliceLocation,
+    setTrafficPoliceLocation,
+  ] = useState(null);
+
+  const [
+    trafficPoliceLive,
+    setTrafficPoliceLive,
+  ] = useState(false);
+
+  const [
+    policeLastUpdated,
+    setPoliceLastUpdated,
+  ] = useState(null);
+
+  const [
+    policeStatus,
+    setPoliceStatus,
+  ] = useState(
+    "Waiting for authorized Traffic Police GPS..."
+  );
+
+  // ===================================================
+  // ALERT
+  // ===================================================
+
+  const [
+    trafficPoliceAlert,
+    setTrafficPoliceAlert,
+  ] = useState(null);
+
+  // ===================================================
+  // GENERAL STATE
+  // ===================================================
+
+  const [gpsError, setGpsError] =
+    useState("");
+
+  const [route, setRoute] =
+    useState([]);
+
+  const [distance, setDistance] =
+    useState(null);
+
+  const [duration, setDuration] =
+    useState(null);
+
+  const [lastUpdated, setLastUpdated] =
+    useState(null);
+
+  const [routeStatus, setRouteStatus] =
+    useState("Calculating route...");
+
+  const [backendStatus, setBackendStatus] =
+    useState("Connecting to backend...");
+
+  // ===================================================
+  // AMBULANCE LOCATION FOR MAP
+  // ===================================================
+
+  const ambulanceLocation = useMemo(() => {
+
+    if (
+      isValidLocation(
+        backendLocation
+      )
+    ) {
+      return backendLocation;
+    }
+
+    if (
+      isValidLocation(
+        gpsLocation
+      )
+    ) {
+      return gpsLocation;
+    }
+
+    // Demo location is ONLY used for map/route.
+    // It is NEVER used for police distance.
+    return DEMO_AMBULANCE;
+
+  }, [
+    backendLocation,
+    gpsLocation,
+  ]);
+
+  // ===================================================
+  // ACTUAL AMBULANCE GPS
+  // ===================================================
+
+  const actualAmbulanceGPS =
+    useMemo(() => {
+
+      if (
+        isValidLocation(
+          backendLocation
+        )
+      ) {
+        return backendLocation;
+      }
+
+      if (
+        isValidLocation(
+          gpsLocation
+        )
+      ) {
+        return gpsLocation;
+      }
+
+      return null;
+
+    }, [
+      backendLocation,
+      gpsLocation,
+    ]);
+
+  // ===================================================
+  // ACTUAL POLICE DISTANCE
+  // ===================================================
+
+  const policeDistance =
+    useMemo(() => {
+
+      // Police must have actual live GPS.
+      if (
+        !trafficPoliceLive ||
+        !isValidLocation(
+          trafficPoliceLocation
+        )
+      ) {
+        return null;
+      }
+
+      // Ambulance must have actual GPS.
+      if (
+        !isValidLocation(
+          actualAmbulanceGPS
+        )
+      ) {
+        return null;
+      }
+
+      // ONLY ACTUAL GPS COORDINATES
+      return distanceKm(
+        actualAmbulanceGPS,
+        trafficPoliceLocation
+      );
+
+    }, [
+      trafficPoliceLive,
+      trafficPoliceLocation,
+      actualAmbulanceGPS,
+    ]);
+
+  // ===================================================
+  // POLICE RANGE
+  // ===================================================
+
+  const policeInRange =
+    trafficPoliceLive &&
+    policeDistance !== null &&
+    policeDistance <=
+      POLICE_ALERT_RADIUS_KM;
+
+  // ===================================================
+  // POLICE DISTANCE TEXT
+  // ===================================================
+
+  const policeDistanceText =
+    formatDistance(
+      policeDistance
+    );
+
+  // ===================================================
+  // EMERGENCY CATEGORY
+  // ===================================================
+
+  const patientEmergencyCategory =
+    trafficPoliceAlert?.emergencyCategory ||
+    "Critical / High Priority";
+
+  // ===================================================
+  // SOCKET.IO
+  // ===================================================
+
+  useEffect(() => {
+
+    const socket =
+      io(BACKEND_URL);
+
+    // =================================================
+    // CONNECT
+    // =================================================
+
+    socket.on(
+      "connect",
+      () => {
+
+        console.log(
+          "Connected to EMMC Backend:",
+          socket.id
+        );
+
+        setBackendStatus(
+          "Backend Connected"
+        );
+
+      }
+    );
+
+    // =================================================
+    // LIVE AMBULANCE GPS
+    // =================================================
+
+    socket.on(
+      "ambulanceLocation",
+      (data) => {
+
+        console.log(
+          "🚑 Ambulance ACTUAL GPS:",
+          data
+        );
+
+        const latitude =
+          Number(
+            data?.latitude
+          );
+
+        const longitude =
+          Number(
+            data?.longitude
+          );
+
+        if (
+          data?.ambulanceId ===
+            AMBULANCE_ID &&
+          isValidCoordinate(
+            latitude,
+            longitude
+          )
+        ) {
+
+          setBackendLocation([
+            latitude,
+            longitude,
+          ]);
+
+          setLastUpdated(
+            new Date()
+          );
+
+        }
+
+      }
+    );
+
+    // =================================================
+    // LIVE AUTHORIZED TRAFFIC POLICE GPS
+    // =================================================
+
+    socket.on(
+      "trafficPoliceLocation",
+      (data) => {
+
+        console.log(
+          "🚔 Traffic Police ACTUAL GPS:",
+          data
+        );
+
+        const policeId =
+          data?.policeId ||
+          data?.id;
+
+        const latitude =
+          Number(
+            data?.latitude
+          );
+
+        const longitude =
+          Number(
+            data?.longitude
+          );
+
+        // ---------------------------------------------
+        // ONLY TP001
+        // ---------------------------------------------
+
+        if (
+          policeId !==
+          AUTHORIZED_POLICE_ID
+        ) {
+
+          console.warn(
+            "Unauthorized Traffic Police ignored:",
+            policeId
+          );
+
+          return;
+        }
+
+        // ---------------------------------------------
+        // GPS VALIDATION
+        // ---------------------------------------------
+
+        if (
+          !isValidCoordinate(
+            latitude,
+            longitude
+          )
+        ) {
+
+          console.warn(
+            "Invalid Traffic Police GPS ignored"
+          );
+
+          return;
+        }
+
+        // ---------------------------------------------
+        // ACTUAL LIVE LOCATION
+        // ---------------------------------------------
+
+        const location = [
+          latitude,
+          longitude,
+        ];
+
+        setTrafficPoliceLocation(
+          location
+        );
+
+        setTrafficPoliceLive(
+          true
+        );
+
+        setPoliceLastUpdated(
+          new Date()
+        );
+
+        setPoliceStatus(
+          "LIVE GPS • Authorized TP001"
+        );
+
+      }
+    );
+
+    // =================================================
+    // TRAFFIC POLICE ALERT
+    // =================================================
+
+    socket.on(
+      "trafficPoliceAlert",
+      (data) => {
+
+        console.log(
+          "🚨 Traffic Police Alert:",
+          data
+        );
+
+        if (
+          data?.ambulanceId ===
+            AMBULANCE_ID &&
+          (
+            !data?.policeId ||
+            data.policeId ===
+              AUTHORIZED_POLICE_ID
+          )
+        ) {
+
+          setTrafficPoliceAlert(
+            data
+          );
+
+          setPoliceStatus(
+            "🚨 Alert Triggered • LIVE GPS"
+          );
+
+        }
+
+      }
+    );
+
+    // =================================================
+    // ALERT CLEARED
+    // =================================================
+
+    socket.on(
+      "trafficPoliceAlertCleared",
+      (data) => {
+
+        console.log(
+          "🟢 Traffic Police Alert Cleared:",
+          data
+        );
+
+        if (
+          !data?.ambulanceId ||
+          data.ambulanceId ===
+            AMBULANCE_ID
+        ) {
+
+          setTrafficPoliceAlert(
+            null
+          );
+
+          setPoliceStatus(
+            "LIVE GPS • Outside 1 KM"
+          );
+
+        }
+
+      }
+    );
+
+    // =================================================
+    // DISCONNECT
+    // =================================================
+
+    socket.on(
+      "disconnect",
+      () => {
+
+        console.log(
+          "Disconnected from EMMC Backend"
+        );
+
+        setBackendStatus(
+          "Backend Disconnected"
+        );
+
+      }
+    );
+
+    // =================================================
+    // CONNECTION ERROR
+    // =================================================
+
+    socket.on(
+      "connect_error",
+      (error) => {
+
+        console.error(
+          "Backend connection error:",
+          error.message
+        );
+
+        setBackendStatus(
+          "Backend not connected"
+        );
+
+      }
+    );
+
+    // =================================================
+    // CLEANUP
+    // =================================================
+
+    return () => {
+
+      socket.off(
+        "connect"
+      );
+
+      socket.off(
+        "ambulanceLocation"
+      );
+
+      socket.off(
+        "trafficPoliceLocation"
+      );
+
+      socket.off(
+        "trafficPoliceAlert"
+      );
+
+      socket.off(
+        "trafficPoliceAlertCleared"
+      );
+
+      socket.off(
+        "disconnect"
+      );
+
+      socket.off(
+        "connect_error"
+      );
+
+      socket.disconnect();
+
+    };
+
+  }, []);
+
+  // ===================================================
+  // INITIAL TRAFFIC POLICE GPS
+  // ===================================================
+
+  useEffect(() => {
+
+    async function getPoliceLocation() {
+
+      try {
+
+        const response =
+          await fetch(
+            `${BACKEND_URL}/api/traffic-police`
+          );
+
+        if (!response.ok) {
+
+          throw new Error(
+            `Backend returned ${response.status}`
+          );
+
+        }
+
+        const data =
+          await response.json();
+
+        console.log(
+          "Traffic Police API:",
+          data
+        );
+
+        const policeId =
+          data?.policeId ||
+          data?.id;
+
+        const latitude =
+          Number(
+            data?.latitude
+          );
+
+        const longitude =
+          Number(
+            data?.longitude
+          );
+
+        // ---------------------------------------------
+        // ONLY AUTHORIZED TP001
+        // ---------------------------------------------
+
+        if (
+          policeId !==
+          AUTHORIZED_POLICE_ID
+        ) {
+
+          console.warn(
+            "Unauthorized Police API data ignored"
+          );
+
+          return;
+        }
+
+        // ---------------------------------------------
+        // NEVER ACCEPT OLD DEMO LOCATION
+        // ---------------------------------------------
+
+        if (
+          data?.isLive !== true
+        ) {
+
+          console.log(
+            "No actual Traffic Police GPS yet."
+          );
+
+          setTrafficPoliceLocation(
+            null
+          );
+
+          setTrafficPoliceLive(
+            false
+          );
+
+          setPoliceStatus(
+            "Waiting for authorized Traffic Police LIVE GPS..."
+          );
+
+          return;
+        }
+
+        // ---------------------------------------------
+        // VALID LIVE GPS
+        // ---------------------------------------------
+
+        if (
+          !isValidCoordinate(
+            latitude,
+            longitude
+          )
+        ) {
+
+          setTrafficPoliceLocation(
+            null
+          );
+
+          setTrafficPoliceLive(
+            false
+          );
+
+          setPoliceStatus(
+            "Waiting for authorized Traffic Police LIVE GPS..."
+          );
+
+          return;
+        }
+
+        setTrafficPoliceLocation([
+          latitude,
+          longitude,
+        ]);
+
+        setTrafficPoliceLive(
+          true
+        );
+
+        setPoliceLastUpdated(
+          data?.lastUpdated
+            ? new Date(
+                data.lastUpdated
+              )
+            : new Date()
+        );
+
+        setPoliceStatus(
+          "LIVE GPS • Authorized TP001"
+        );
+
+      } catch (error) {
+
+        console.warn(
+          "Traffic Police GPS request failed:",
+          error.message
+        );
+
+        setTrafficPoliceLocation(
+          null
+        );
+
+        setTrafficPoliceLive(
+          false
+        );
+
+        setPoliceStatus(
+          "Waiting for authorized Traffic Police LIVE GPS..."
+        );
+
+      }
+
+    }
+
+    getPoliceLocation();
+
+  }, []);
+
+  // ===================================================
+  // AMBULANCE DEVICE GPS
+  // ===================================================
+
+  useEffect(() => {
+
+    if (
+      !navigator.geolocation
+    ) {
+
+      setGpsError(
+        "This browser/device does not support Geolocation."
+      );
+
+      return;
+    }
+
+    const id =
+      navigator.geolocation.watchPosition(
+
+        async (position) => {
+
+          const latitude =
+            Number(
+              position.coords.latitude
+            );
+
+          const longitude =
+            Number(
+              position.coords.longitude
+            );
+
+          // -------------------------------------------
+          // VALIDATE ACTUAL GPS
+          // -------------------------------------------
+
+          if (
+            !isValidCoordinate(
+              latitude,
+              longitude
+            )
+          ) {
+
+            console.warn(
+              "Invalid ambulance GPS ignored"
+            );
+
+            return;
+          }
+
+          const location = [
+            latitude,
+            longitude,
+          ];
+
+          // -------------------------------------------
+          // LOCAL ACTUAL GPS
+          // -------------------------------------------
+
+          setGpsLocation(
+            location
+          );
+
+          setGpsError("");
+
+          setLastUpdated(
+            new Date()
+          );
+
+          // -------------------------------------------
+          // SEND ACTUAL GPS TO BACKEND
+          // -------------------------------------------
+
+          try {
+
+            const response =
+              await fetch(
+                `${BACKEND_URL}/api/ambulance/location`,
+                {
+                  method: "POST",
+
+                  headers: {
+                    "Content-Type":
+                      "application/json",
+                  },
+
+                  body:
+                    JSON.stringify({
+                      ambulanceId:
+                        AMBULANCE_ID,
+
+                      latitude,
+
+                      longitude,
+
+                      accuracy:
+                        position.coords.accuracy,
+                    }),
+                }
+              );
+
+            if (
+              !response.ok
+            ) {
+
+              throw new Error(
+                `Backend returned ${response.status}`
+              );
+
+            }
+
+            const data =
+              await response.json();
+
+            console.log(
+              "🚑 Actual Ambulance GPS sent:",
+              data
+            );
+
+          } catch (error) {
+
+            console.error(
+              "Ambulance backend GPS error:",
+              error.message
+            );
+
+          }
+
+        },
+
+        (error) => {
+
+          console.warn(
+            "Ambulance GPS Error:",
+            error.message
+          );
+
+          setGpsError(
+            "Ambulance GPS permission allow nahi hui."
+          );
+
+        },
+
+        {
+          enableHighAccuracy:
+            true,
+
+          maximumAge:
+            2000,
+
+          timeout:
+            10000,
+        }
+      );
+
+    return () => {
+
+      navigator.geolocation.clearWatch(
+        id
+      );
+
+    };
+
+  }, []);
+
+  // ===================================================
+  // ROUTE CALCULATION
+  // ===================================================
+
+  useEffect(() => {
+
+    const controller =
+      new AbortController();
+
+    async function getRoute() {
+
+      try {
+
+        setRouteStatus(
+          "Recalculating route..."
+        );
+
+        const [
+          fromLat,
+          fromLng,
+        ] =
+          ambulanceLocation;
+
+        const [
+          toLat,
+          toLng,
+        ] =
+          DEMO_HOSPITAL;
+
+        const url =
+          `https://router.project-osrm.org/route/v1/driving/` +
+          `${fromLng},${fromLat};${toLng},${toLat}` +
+          `?overview=full&geometries=geojson`;
+
+        const response =
+          await fetch(
+            url,
+            {
+              signal:
+                controller.signal,
+            }
+          );
+
+        if (
+          !response.ok
+        ) {
+
+          throw new Error(
+            `Routing request failed: ${response.status}`
+          );
+
+        }
+
+        const data =
+          await response.json();
+
+        if (
+          data.routes?.length
+        ) {
+
+          const selectedRoute =
+            data.routes[0];
+
+          const routePoints =
+            selectedRoute
+              .geometry
+              .coordinates
+              .map(
+                ([lng, lat]) => [
+                  lat,
+                  lng,
+                ]
+              );
+
+          setRoute(
+            routePoints
+          );
+
+          setDistance(
+            (
+              selectedRoute.distance /
+              1000
+            ).toFixed(2)
+          );
+
+          setDuration(
+            Math.round(
+              selectedRoute.duration /
+                60
+            )
+          );
+
+          setRouteStatus(
+            "Live route updated"
+          );
+
+        } else {
+
+          setRouteStatus(
+            "Route unavailable"
+          );
+
+        }
+
+      } catch (error) {
+
+        if (
+          error.name !==
+          "AbortError"
+        ) {
+
+          console.error(
+            "Route error:",
+            error
+          );
+
+          setRouteStatus(
+            "Route calculation failed"
+          );
+
+        }
+
+      }
+
+    }
+
+    getRoute();
+
+    return () => {
+
+      controller.abort();
+
+    };
+
+  }, [
+    ambulanceLocation,
+  ]);
+
+  // ===================================================
+  // UI
+  // ===================================================
+
+  return (
+
+    <section className="map-card">
+
+      {/* =================================================
+          MAP
+      ================================================= */}
+
+      <div className="map">
+
+        <MapContainer
+          center={
+            ambulanceLocation
+          }
+          zoom={14}
+          style={{
+            height: "100%",
+            width: "100%",
+          }}
+          dragging={true}
+          touchZoom={true}
+          scrollWheelZoom={true}
+          doubleClickZoom={true}
+          zoomControl={true}
+          keyboard={true}
+        >
+
+          <MapRecenter
+            location={
+              ambulanceLocation
+            }
+          />
+
+          <TileLayer
+            attribution="&copy; OpenStreetMap contributors"
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+
+          {/* ===========================================
+              AMBULANCE
+          =========================================== */}
+
+          <Marker
+            position={
+              ambulanceLocation
+            }
+            icon={ambulanceIcon}
+          >
+
+            <Popup>
+
+              🚑{" "}
+
+              <b>
+                Ambulance {AMBULANCE_ID}
+              </b>
+
+              <br />
+
+              {actualAmbulanceGPS
+                ? "LIVE GPS"
+                : "Demo / Waiting for GPS"}
+
+            </Popup>
+
+          </Marker>
+
+          {/* ===========================================
+              HOSPITAL
+          =========================================== */}
+
+          <Marker
+            position={
+              DEMO_HOSPITAL
+            }
+            icon={hospitalIcon}
+          >
+
+            <Popup>
+
+              🏥{" "}
+
+              <b>
+                {DEMO_HOSPITAL_NAME}
+              </b>
+
+              <br />
+
+              Emergency Department
+
+            </Popup>
+
+          </Marker>
+
+          {/* ===========================================
+              ONLY ACTUAL TP001 TRAFFIC POLICE
+          =========================================== */}
+
+          {trafficPoliceLive &&
+            isValidLocation(
+              trafficPoliceLocation
+            ) && (
+
+            <>
+
+              <Marker
+                position={
+                  trafficPoliceLocation
+                }
+                icon={policeIcon}
+              >
+
+                <Popup>
+
+                  🚔{" "}
+
+                  <b>
+                    Authorized Traffic Police
+                  </b>
+
+                  <br />
+
+                  Police ID:{" "}
+
+                  <b>
+                    {AUTHORIZED_POLICE_ID}
+                  </b>
+
+                  <br />
+
+                  🟢 LIVE GPS
+
+                  <br />
+
+                  📍 Latitude:{" "}
+
+                  {trafficPoliceLocation[0].toFixed(
+                    6
+                  )}
+
+                  <br />
+
+                  📍 Longitude:{" "}
+
+                  {trafficPoliceLocation[1].toFixed(
+                    6
+                  )}
+
+                  <br />
+
+                  📏 Actual Distance:{" "}
+
+                  <b>
+                    {policeDistanceText}
+                  </b>
+
+                  <br />
+
+                  🚨 Status:{" "}
+
+                  <b>
+                    {policeInRange
+                      ? "Alert Triggered"
+                      : "No Alert"}
+                  </b>
+
+                </Popup>
+
+              </Marker>
+
+              {/* ONLY ONE POLICE 1 KM RANGE */}
+
+              <Circle
+                center={
+                  trafficPoliceLocation
+                }
+                radius={
+                  POLICE_ALERT_RADIUS_KM *
+                  1000
+                }
+                pathOptions={{
+                  weight: 2,
+                  dashArray: "8 8",
+                }}
+              />
+
+            </>
+
+          )}
+
+          {/* ===========================================
+              ROUTE
+          =========================================== */}
+
+          {route.length > 0 && (
+
+            <Polyline
+              positions={
+                route
+              }
+              pathOptions={{
+                weight: 5,
+              }}
+            />
+
+          )}
+
+        </MapContainer>
+
+      </div>
+
+      {/* =================================================
+          INFORMATION PANEL
+      ================================================= */}
+
+      <div className="info">
+
+        {/* =============================================
+            BACKEND
+        ============================================= */}
+
+        <div className="status">
+
+          🔌{" "}
+
+          <b>
+            Backend:
+          </b>{" "}
+
+          {backendStatus}
+
+        </div>
+
+        {/* =============================================
+            AMBULANCE GPS
+        ============================================= */}
+
+        <div className="status">
+
+          🚑{" "}
+
+          {actualAmbulanceGPS ? (
+
+            <>
+
+              <b>
+                Ambulance LIVE GPS
+              </b>
+
+              {" — "}
+
+              {actualAmbulanceGPS[0].toFixed(
+                5
+              )}
+
+              {", "}
+
+              {actualAmbulanceGPS[1].toFixed(
+                5
+              )}
+
+            </>
+
+          ) : (
+
+            <>
+
+              <b>
+                Waiting for Ambulance LIVE GPS
+              </b>
+
+            </>
+
+          )}
+
+          {lastUpdated && (
+
+            <>
+
+              {" • Updated "}
+
+              {lastUpdated.toLocaleTimeString()}
+
+            </>
+
+          )}
+
+        </div>
+
+        {/* =============================================
+            GPS ERROR
+        ============================================= */}
+
+        {gpsError && (
+
+          <div className="status">
+
+            ⚠️{" "}
+            {gpsError}
+
+          </div>
+
+        )}
+
+        {/* =============================================
+            TRAFFIC POLICE STATUS
+        ============================================= */}
+
+        <div className="status">
+
+          🚔{" "}
+
+          <b>
+            Authorized Traffic Police:
+          </b>{" "}
+
+          {trafficPoliceLive
+            ? "🟢 LIVE GPS • TP001"
+            : "📡 Waiting for LIVE GPS"}
+
+        </div>
+
+        {/* =============================================
+            POLICE PROXIMITY
+        ============================================= */}
+
+        {trafficPoliceLive &&
+        isValidLocation(
+          trafficPoliceLocation
+        ) &&
+        policeDistance !== null ? (
+
+          policeInRange ? (
+
+            // =========================================
+            // WITHIN 1 KM
+            // =========================================
+
+            <div className="alert">
+
+              <h3>
+                🚨 Traffic Police Alert
+              </h3>
+
+              <div>
+
+                🚑 Ambulance{" "}
+
+                <b>
+                  {AMBULANCE_ID}
+                </b>
+
+                {" "}is within{" "}
+
+                <b>
+                  1 km
+                </b>
+
+                {" "}of authorized Traffic Police.
+
+              </div>
+
+              <div>
+
+                🚔 Police ID:{" "}
+
+                <b>
+                  {AUTHORIZED_POLICE_ID}
+                </b>
+
+              </div>
+
+              <div>
+
+                📍 Police GPS:{" "}
+
+                <b>
+
+                  {trafficPoliceLocation[0].toFixed(
+                    5
+                  )}
+
+                  {", "}
+
+                  {trafficPoliceLocation[1].toFixed(
+                    5
+                  )}
+
+                </b>
+
+              </div>
+
+              <div>
+
+                📏 Actual Distance:{" "}
+
+                <b>
+                  {policeDistanceText}
+                </b>
+
+              </div>
+
+              <div>
+
+                🏥 Destination:{" "}
+
+                <b>
+                  {trafficPoliceAlert?.destination ||
+                    DEMO_HOSPITAL_NAME}
+                </b>
+
+              </div>
+
+              <div>
+
+                ⚠️ Emergency Category:{" "}
+
+                <b>
+                  {patientEmergencyCategory}
+                </b>
+
+              </div>
+
+              <div>
+
+                🚦 Action: Traffic Police can
+                coordinate traffic clearance
+                for the ambulance.
+
+              </div>
+
+              <div>
+
+                ⚡ Source:{" "}
+
+                <b>
+                  Authorized Traffic Police LIVE GPS
+                </b>
+
+              </div>
+
+            </div>
+
+          ) : (
+
+            // =========================================
+            // OUTSIDE 1 KM
+            // =========================================
+
+            <div className="police">
+
+              <h3>
+                🚔 Traffic Police Proximity
+              </h3>
+
+              <div>
+
+                Authorized Traffic Police{" "}
+
+                <b>
+                  {policeDistanceText}
+                </b>
+
+                {" "}away from Ambulance.
+
+              </div>
+
+              <div>
+
+                🟢{" "}
+
+                <span className="badge">
+                  No Alert
+                </span>
+
+              </div>
+
+              <div style={{
+                marginTop: "8px",
+                fontSize: "13px",
+                opacity: 0.8,
+              }}>
+
+                Alert threshold:{" "}
+                <b>
+                  1 km
+                </b>
+
+                {" • "}
+
+                Actual GPS distance:{" "}
+
+                <b>
+                  {policeDistanceText}
+                </b>
+
+              </div>
+
+              <div style={{
+                marginTop: "6px",
+                fontSize: "13px",
+                opacity: 0.8,
+              }}>
+
+                🚔 Police GPS:{" "}
+                <b>
+                  LIVE • TP001
+                </b>
+
+              </div>
+
+            </div>
+
+          )
+
+        ) : (
+
+          // =========================================
+          // WAITING FOR ACTUAL GPS
+          // =========================================
+
+          <div className="police">
+
+            <h3>
+              🚔 Traffic Police Proximity
+            </h3>
+
+            <div>
+
+              📡{" "}
+
+              <b>
+                Waiting for actual Traffic Police GPS
+              </b>
+
+            </div>
+
+            <div style={{
+              marginTop: "8px",
+              fontSize: "13px",
+              opacity: 0.8,
+            }}>
+
+              Authorized Police ID:{" "}
+              <b>
+                {AUTHORIZED_POLICE_ID}
+              </b>
+
+              {" • "}
+
+              Actual GPS distance will be shown
+              automatically.
+
+            </div>
+
+          </div>
+
+        )}
+
+        {/* =============================================
+            ROUTE
+        ============================================= */}
+
+        <div className="status">
+
+          🛣️{" "}
+
+          <b>
+            Route:
+          </b>{" "}
+
+          {routeStatus}
+
+        </div>
+
+        {/* =============================================
+            STATS
+        ============================================= */}
+
+        <div className="stats">
+
+          <div className="stat">
+
+            <span>
+              📏 Distance
+            </span>
+
+            <strong>
+
+              {distance
+                ? `${distance} km`
+                : "Calculating..."}
+
+            </strong>
+
+          </div>
+
+          <div className="stat">
+
+            <span>
+              ⏱️ ETA
+            </span>
+
+            <strong>
+
+              {duration !== null
+                ? `${duration} min`
+                : "Calculating..."}
+
+            </strong>
+
+          </div>
+
+          <div className="stat">
+
+            <span>
+              🚑 Ambulance
+            </span>
+
+            <strong>
+              {AMBULANCE_ID}
+            </strong>
+
+          </div>
+
+          <div className="stat">
+
+            <span>
+              🏥 Destination
+            </span>
+
+            <strong>
+              {DEMO_HOSPITAL_NAME}
+            </strong>
+
+          </div>
+
+        </div>
+
+        {/* =============================================
+            FINAL POLICE LOGIC
+        ============================================= */}
+
+        <div className="police">
+
+          <h3>
+            🚔 Traffic Police Alert Logic
+          </h3>
+
+          <div>
+
+            <b>
+              Authorized ID:
+            </b>{" "}
+
+            {AUTHORIZED_POLICE_ID}
+
+            {" | "}
+
+            <b>
+              Range:
+            </b>{" "}
+
+            1 km
+
+            {" | "}
+
+            <b>
+              Current Actual Distance:
+            </b>{" "}
+
+            {policeDistance !== null
+              ? policeDistanceText
+              : "Waiting for GPS"}
+
+          </div>
+
+          <div style={{
+            marginTop: "6px",
+          }}>
+
+            <b>
+              GPS Status:
+            </b>{" "}
+
+            {trafficPoliceLive
+              ? "🟢 LIVE"
+              : "📡 Waiting"}
+
+            {" | "}
+
+            <b>
+              Alert:
+            </b>{" "}
+
+            {policeDistance === null
+              ? "📡 Waiting for actual GPS"
+              : policeInRange
+              ? "🚨 Triggered"
+              : "🟢 No Alert"}
+
+          </div>
+
+          {policeLastUpdated && (
+
+            <div style={{
+              marginTop: "6px",
+              fontSize: "12px",
+              opacity: 0.75,
+            }}>
+
+              Police GPS updated:{" "}
+
+              {policeLastUpdated.toLocaleTimeString()}
+
+            </div>
+
+          )}
+
+        </div>
+
+      </div>
+
+    </section>
+
+  );
 }

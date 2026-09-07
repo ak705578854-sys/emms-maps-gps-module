@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 const BACKEND_URL = "http://localhost:3001";
-const POLICE_ID = "TP001";
+const AUTHORIZED_POLICE_ID = "TP001";
 
 function isValidGPS(latitude, longitude) {
   return (
@@ -15,16 +15,20 @@ function isValidGPS(latitude, longitude) {
 }
 
 export default function TrafficPoliceTracker() {
+  const [policeId, setPoliceId] = useState("");
+  const [loggedIn, setLoggedIn] = useState(false);
+
   const [location, setLocation] = useState(null);
-  const [status, setStatus] = useState("GPS not started");
+  const [status, setStatus] = useState("Police Login Required");
   const [error, setError] = useState("");
   const [backendStatus, setBackendStatus] =
-    useState("Checking backend...");
+    useState("Checking Backend...");
+
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [sending, setSending] = useState(false);
+
   const watchIdRef = useRef(null);
 
-  // Check backend
+  // BACKEND CHECK
   useEffect(() => {
     fetch(`${BACKEND_URL}/api/traffic-police`)
       .then((res) => {
@@ -47,20 +51,32 @@ export default function TrafficPoliceTracker() {
     };
   }, []);
 
+  // LOGIN
+  const handleLogin = () => {
+    if (policeId.trim() !== AUTHORIZED_POLICE_ID) {
+      setError("❌ Unauthorized Traffic Police ID");
+      return;
+    }
+
+    setError("");
+    setLoggedIn(true);
+    setStatus("Ready to start GPS");
+  };
+
+  // START GPS
   const startGPS = () => {
     setError("");
-    setLocation(null);
-    setStatus("Requesting GPS permission...");
 
     if (!navigator.geolocation) {
       setStatus("GPS unavailable");
       setError(
-        "This browser/device does not support GPS."
+        "This device/browser does not support GPS."
       );
       return;
     }
 
-    // Stop previous watcher
+    setStatus("Requesting GPS permission...");
+
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(
         watchIdRef.current
@@ -79,7 +95,7 @@ export default function TrafficPoliceTracker() {
           );
 
           if (!isValidGPS(latitude, longitude)) {
-            setError("Invalid GPS coordinates received.");
+            setError("Invalid GPS coordinates.");
             return;
           }
 
@@ -89,9 +105,8 @@ export default function TrafficPoliceTracker() {
             accuracy: position.coords.accuracy,
           });
 
-          setStatus("🟢 GPS Active");
+          setStatus("🟢 Live GPS");
           setError("");
-          setSending(true);
 
           try {
             const response = await fetch(
@@ -102,7 +117,7 @@ export default function TrafficPoliceTracker() {
                   "Content-Type": "application/json",
                 },
                 body: JSON.stringify({
-                  policeId: POLICE_ID,
+                  policeId: AUTHORIZED_POLICE_ID,
                   latitude,
                   longitude,
                 }),
@@ -113,19 +128,22 @@ export default function TrafficPoliceTracker() {
 
             if (!response.ok) {
               throw new Error(
-                data.message || "Backend error"
+                data.message || "Backend Error"
               );
             }
 
-            setBackendStatus("🟢 Backend Connected");
+            setBackendStatus(
+              "🟢 Backend Connected • GPS Sent"
+            );
+
             setLastUpdated(new Date());
+
             setStatus(
               "🟢 Live GPS • Location Sent"
             );
-            setError("");
 
             console.log(
-              "🚔 Police GPS sent:",
+              "🚔 REAL POLICE GPS:",
               latitude,
               longitude
             );
@@ -133,20 +151,22 @@ export default function TrafficPoliceTracker() {
             console.error(err);
 
             setStatus(
-              "🟢 GPS Active • Backend Error"
+              "GPS Active • Backend Error"
+            );
+
+            setBackendStatus(
+              "🔴 Backend Connection Error"
             );
 
             setError(
-              "GPS मिल रहा है लेकिन Backend तक location नहीं पहुँच रही है."
+              "GPS मिल रहा है लेकिन Backend तक नहीं पहुँच रहा।"
             );
-          } finally {
-            setSending(false);
           }
         },
 
         (gpsError) => {
           console.error(
-            "GPS ERROR:",
+            "GPS Error:",
             gpsError.code,
             gpsError.message
           );
@@ -154,26 +174,24 @@ export default function TrafficPoliceTracker() {
           if (gpsError.code === 1) {
             setStatus("Location Permission Denied");
             setError(
-              "Chrome ने Location permission deny की है. Address bar में Location को Allow करके फिर नीचे START GPS दबाएँ."
+              "Location permission Allow करें।"
             );
           } else if (gpsError.code === 2) {
-            setStatus("GPS Location Unavailable");
+            setStatus("GPS Unavailable");
             setError(
-              "Windows/device से GPS location नहीं मिल रही है."
+              "Actual GPS location नहीं मिल रही है।"
             );
           } else if (gpsError.code === 3) {
             setStatus("GPS Timeout");
             setError(
-              "GPS location मिलने में बहुत समय लग रहा है. फिर START GPS दबाएँ."
+              "GPS location मिलने में timeout हुआ।"
             );
           } else {
             setStatus("GPS Error");
             setError(
-              "GPS location प्राप्त नहीं हो सकी."
+              "Actual GPS location प्राप्त नहीं हुई।"
             );
           }
-
-          setSending(false);
         },
 
         {
@@ -184,206 +202,270 @@ export default function TrafficPoliceTracker() {
       );
   };
 
+  // STOP GPS
   const stopGPS = () => {
     if (watchIdRef.current !== null) {
       navigator.geolocation.clearWatch(
         watchIdRef.current
       );
+
       watchIdRef.current = null;
     }
 
-    setStatus("GPS stopped");
-    setSending(false);
+    setStatus("GPS Stopped");
+  };
+
+  // LOGOUT
+  const logout = () => {
+    stopGPS();
+
+    setLoggedIn(false);
+    setPoliceId("");
+    setLocation(null);
+    setStatus("Police Login Required");
+    setError("");
   };
 
   return (
     <div
       style={{
         maxWidth: "500px",
-        margin: "30px auto",
+        margin: "20px auto",
         padding: "24px",
         borderRadius: "16px",
-        background: "#fff",
-        boxShadow: "0 4px 20px rgba(0,0,0,.12)",
+        background: "#ffffff",
+        boxShadow:
+          "0 4px 20px rgba(0,0,0,.12)",
         fontFamily: "Arial, sans-serif",
       }}
     >
-      <h2 style={{ marginTop: 0 }}>
-        🚔 Traffic Police GPS Tracker
-      </h2>
 
-      <div
-        style={{
-          padding: "14px",
-          borderRadius: "10px",
-          background: "#f3f4f6",
-          marginBottom: "12px",
-        }}
-      >
-        <b>Police ID:</b> {POLICE_ID}
-      </div>
+      {!loggedIn ? (
+        <>
+          <h2 style={{ marginTop: 0 }}>
+            🚔 Traffic Police Mode
+          </h2>
 
-      <div
-        style={{
-          padding: "14px",
-          borderRadius: "10px",
-          background:
-            status.includes("Live") ||
-            status.includes("Active")
-              ? "#dcfce7"
-              : "#f3f4f6",
-          marginBottom: "12px",
-        }}
-      >
-        <b>Status:</b> {status}
-      </div>
+          <p style={{ color: "#667085" }}>
+            Authorized Traffic Police Login
+          </p>
 
-      <div
-        style={{
-          padding: "14px",
-          borderRadius: "10px",
-          background: "#eff6ff",
-          marginBottom: "12px",
-        }}
-      >
-        <b>Backend:</b> {backendStatus}
-      </div>
+          <input
+            value={policeId}
+            onChange={(e) =>
+              setPoliceId(e.target.value)
+            }
+            placeholder="Enter Police ID"
+            style={{
+              width: "100%",
+              padding: "13px",
+              borderRadius: "10px",
+              border: "1px solid #d1d5db",
+              marginBottom: "12px",
+              fontSize: "15px",
+              boxSizing: "border-box",
+            }}
+          />
 
-      {location ? (
-        <div
-          style={{
-            padding: "14px",
-            borderRadius: "10px",
-            background: "#eff6ff",
-            marginBottom: "12px",
-          }}
-        >
-          <div>
-            📍 <b>Latitude:</b>{" "}
-            {location.latitude.toFixed(6)}
+          <button
+            onClick={handleLogin}
+            style={{
+              width: "100%",
+              padding: "13px",
+              border: "none",
+              borderRadius: "10px",
+              background: "#16a34a",
+              color: "white",
+              fontWeight: "bold",
+              cursor: "pointer",
+            }}
+          >
+            🚔 LOGIN
+          </button>
+
+          <div
+            style={{
+              marginTop: "15px",
+              padding: "12px",
+              borderRadius: "10px",
+              background: "#f3f4f6",
+              fontSize: "13px",
+            }}
+          >
+            Authorized ID: <b>TP001</b>
           </div>
 
-          <div style={{ marginTop: "8px" }}>
-            📍 <b>Longitude:</b>{" "}
-            {location.longitude.toFixed(6)}
-          </div>
-
-          <div style={{ marginTop: "8px" }}>
-            🎯 <b>Accuracy:</b>{" "}
-            {location.accuracy
-              ? `${location.accuracy.toFixed(1)} m`
-              : "N/A"}
-          </div>
-        </div>
+          {error && (
+            <div
+              style={{
+                marginTop: "12px",
+                padding: "12px",
+                borderRadius: "8px",
+                background: "#fee2e2",
+                color: "#991b1b",
+              }}
+            >
+              ⚠️ {error}
+            </div>
+          )}
+        </>
       ) : (
-        <div
-          style={{
-            padding: "14px",
-            borderRadius: "10px",
-            background: "#fef3c7",
-            marginBottom: "12px",
-          }}
-        >
-          📍 Waiting for GPS location...
-        </div>
+        <>
+          <h2 style={{ marginTop: 0 }}>
+            🚔 Traffic Police GPS
+          </h2>
+
+          <div
+            style={{
+              padding: "14px",
+              borderRadius: "10px",
+              background: "#f3f4f6",
+              marginBottom: "12px",
+            }}
+          >
+            <b>Police ID:</b> TP001
+          </div>
+
+          <div
+            style={{
+              padding: "14px",
+              borderRadius: "10px",
+              background:
+                status.includes("Live")
+                  ? "#dcfce7"
+                  : "#f3f4f6",
+              marginBottom: "12px",
+            }}
+          >
+            <b>Status:</b> {status}
+          </div>
+
+          <div
+            style={{
+              padding: "14px",
+              borderRadius: "10px",
+              background: "#eff6ff",
+              marginBottom: "12px",
+            }}
+          >
+            <b>Backend:</b> {backendStatus}
+          </div>
+
+          {location ? (
+            <div
+              style={{
+                padding: "14px",
+                borderRadius: "10px",
+                background: "#eff6ff",
+                marginBottom: "12px",
+              }}
+            >
+              <div>
+                📍 <b>Latitude:</b>{" "}
+                {location.latitude.toFixed(6)}
+              </div>
+
+              <div style={{ marginTop: "8px" }}>
+                📍 <b>Longitude:</b>{" "}
+                {location.longitude.toFixed(6)}
+              </div>
+
+              <div style={{ marginTop: "8px" }}>
+                🎯 <b>GPS Accuracy:</b>{" "}
+                {location.accuracy
+                  ? `${location.accuracy.toFixed(1)} m`
+                  : "N/A"}
+              </div>
+            </div>
+          ) : (
+            <div
+              style={{
+                padding: "14px",
+                borderRadius: "10px",
+                background: "#fef3c7",
+                marginBottom: "12px",
+              }}
+            >
+              📍 Waiting for actual GPS...
+            </div>
+          )}
+
+          <button
+            onClick={startGPS}
+            style={{
+              width: "100%",
+              padding: "13px",
+              border: "none",
+              borderRadius: "10px",
+              background: "#16a34a",
+              color: "white",
+              fontWeight: "bold",
+              cursor: "pointer",
+              marginBottom: "10px",
+            }}
+          >
+            📍 START LIVE GPS
+          </button>
+
+          <button
+            onClick={stopGPS}
+            style={{
+              width: "100%",
+              padding: "13px",
+              border: "none",
+              borderRadius: "10px",
+              background: "#dc2626",
+              color: "white",
+              fontWeight: "bold",
+              cursor: "pointer",
+              marginBottom: "10px",
+            }}
+          >
+            ⛔ STOP GPS
+          </button>
+
+          {lastUpdated && (
+            <div
+              style={{
+                fontSize: "13px",
+                opacity: 0.75,
+                marginBottom: "12px",
+              }}
+            >
+              Last GPS update:{" "}
+              {lastUpdated.toLocaleTimeString()}
+            </div>
+          )}
+
+          {error && (
+            <div
+              style={{
+                padding: "12px",
+                borderRadius: "8px",
+                background: "#fee2e2",
+                color: "#991b1b",
+                marginBottom: "12px",
+              }}
+            >
+              ⚠️ {error}
+            </div>
+          )}
+
+          <button
+            onClick={logout}
+            style={{
+              width: "100%",
+              padding: "11px",
+              border: "1px solid #d1d5db",
+              borderRadius: "10px",
+              background: "white",
+              cursor: "pointer",
+            }}
+          >
+            Logout
+          </button>
+        </>
       )}
-
-      <div
-        style={{
-          display: "flex",
-          gap: "10px",
-          marginBottom: "15px",
-        }}
-      >
-        <button
-          onClick={startGPS}
-          style={{
-            flex: 1,
-            padding: "13px",
-            border: "none",
-            borderRadius: "10px",
-            background: "#16a34a",
-            color: "#fff",
-            fontWeight: "bold",
-            cursor: "pointer",
-          }}
-        >
-          📍 START GPS
-        </button>
-
-        <button
-          onClick={stopGPS}
-          style={{
-            flex: 1,
-            padding: "13px",
-            border: "none",
-            borderRadius: "10px",
-            background: "#dc2626",
-            color: "#fff",
-            fontWeight: "bold",
-            cursor: "pointer",
-          }}
-        >
-          STOP GPS
-        </button>
-      </div>
-
-      {sending && (
-        <div
-          style={{
-            padding: "12px",
-            borderRadius: "8px",
-            background: "#dbeafe",
-            marginBottom: "12px",
-          }}
-        >
-          📡 Sending GPS location to EMMC Backend...
-        </div>
-      )}
-
-      {lastUpdated && (
-        <div
-          style={{
-            fontSize: "13px",
-            opacity: 0.75,
-            marginBottom: "12px",
-          }}
-        >
-          Last GPS update:{" "}
-          {lastUpdated.toLocaleTimeString()}
-        </div>
-      )}
-
-      {error && (
-        <div
-          style={{
-            padding: "12px",
-            borderRadius: "8px",
-            background: "#fee2e2",
-            color: "#991b1b",
-            marginBottom: "12px",
-          }}
-        >
-          ⚠️ {error}
-        </div>
-      )}
-
-      <div
-        style={{
-          marginTop: "15px",
-          fontSize: "13px",
-          lineHeight: "1.6",
-          opacity: 0.8,
-        }}
-      >
-        🚔 Authorized Traffic Police: TP001
-        <br />
-        📡 Real GPS continuously sent to EMMC Backend
-        <br />
-        📏 Dashboard calculates actual ambulance-to-police distance
-        <br />
-        🚨 Alert when distance is within 1 km
-      </div>
     </div>
   );
 }
